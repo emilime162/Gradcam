@@ -11,7 +11,9 @@ PyTorch implementation of **Grad-CAM (Gradient-weighted Class Activation Mapping
 * Generates a **2x4 grid** combining the input image and Grad-CAM visualizations.
 * Analyzes and visualizes adversarial examples to understand model vulnerabilities.
 
+
 ---
+
 
 ## Requirements
 
@@ -27,5 +29,39 @@ Install the required dependencies with:
 
 ```bash
 pip install torch torchvision numpy opencv-python matplotlib click
+```
+
+---
 
 
+## Usage
+```bash
+python main.py [COMMAND] [OPTIONS]
+```
+
+### Commands
+demo1: Generate Grad-CAM visualizations for specified images.
+### Options
+-i, --image-paths: Path(s) to input image(s). Multiple images can be provided (required).
+-o, --output-dir: Directory to save the results (default: ./results).
+--cuda/--cpu: Use GPU (CUDA) if available or force CPU.
+
+Demo 1: Grad-CAM Visualization
+Generate Grad-CAM visualizations for a pretrained VGG16 model.
+
+```bash
+python main.py demo1 -i [IMAGE_PATHS] -o [OUTPUT_DIR] [--cuda/--cpu]
+```
+## Adversarial Example Visualization
+
+Below, we use **Grad-CAM** to visualize the model's decision-making process for an adversarial example and its correct classification.
+
+### Input Explanation
+- **Left Image:** Grad-CAM visualization of an adversarial example where the original image of a hog is perturbed to be classified as a "gibbon."
+- **Right Image:** Grad-CAM visualization of the original (non-perturbed) image, correctly classified as "hog."
+
+### Visualization
+
+| Adversarial Example (Gibbon) | Correct Classification (Hog) |
+|------------------------------|-------------------------------|
+| ![Adversarial Gibbon](results/gibbon_gradcam.png) | ![Original Hog](results/hog_gradcam.png) |

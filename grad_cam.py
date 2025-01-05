@@ -1,11 +1,5 @@
-#!/usr/bin/env python
-# coding: utf-8
-#
-# Author:   Kazuto Nakashima
-# URL:      http://kazuto1011.github.io
-# Created:  2017-05-26
-
-from collections import Sequence
+# Description: This file contains the implementation of Grad-CAM algorithm.
+from collections.abc import Sequence
 
 import numpy as np
 import torch
@@ -51,60 +45,10 @@ class _BaseWrapper(object):
             handle.remove()
 
 
-class BackPropagation(_BaseWrapper):
-    def forward(self, image):
-        self.image = image.requires_grad_()
-        return super(BackPropagation, self).forward(self.image)
-
-    def generate(self):
-        gradient = self.image.grad.clone()
-        self.image.grad.zero_()
-        return gradient
-
-
-class GuidedBackPropagation(BackPropagation):
-    """
-    "Striving for Simplicity: the All Convolutional Net"
-    https://arxiv.org/pdf/1412.6806.pdf
-    Look at Figure 1 on page 8.
-    """
-
-    def __init__(self, model):
-        super(GuidedBackPropagation, self).__init__(model)
-
-        def backward_hook(module, grad_in, grad_out):
-            # Cut off negative gradients
-            if isinstance(module, nn.ReLU):
-                return (F.relu(grad_in[0]),)
-
-        for module in self.model.named_modules():
-            self.handlers.append(module[1].register_backward_hook(backward_hook))
-
-
-class Deconvnet(BackPropagation):
-    """
-    "Striving for Simplicity: the All Convolutional Net"
-    https://arxiv.org/pdf/1412.6806.pdf
-    Look at Figure 1 on page 8.
-    """
-
-    def __init__(self, model):
-        super(Deconvnet, self).__init__(model)
-
-        def backward_hook(module, grad_in, grad_out):
-            # Cut off negative gradients and ignore ReLU
-            if isinstance(module, nn.ReLU):
-                return (F.relu(grad_out[0]),)
-
-        for module in self.model.named_modules():
-            self.handlers.append(module[1].register_backward_hook(backward_hook))
-
 
 class GradCAM(_BaseWrapper):
     """
-    "Grad-CAM: Visual Explanations from Deep Networks via Gradient-based Localization"
-    https://arxiv.org/pdf/1610.02391.pdf
-    Look at Figure 2 on page 4
+    GradCAM
     """
 
     def __init__(self, model, candidate_layers=None):
@@ -156,61 +100,3 @@ class GradCAM(_BaseWrapper):
 
         return gcam
 
-
-def occlusion_sensitivity(
-    model, images, ids, mean=None, patch=35, stride=1, n_batches=128
-):
-    """
-    "Grad-CAM: Visual Explanations from Deep Networks via Gradient-based Localization"
-    https://arxiv.org/pdf/1610.02391.pdf
-    Look at Figure A5 on page 17
-
-    Originally proposed in:
-    "Visualizing and Understanding Convolutional Networks"
-    https://arxiv.org/abs/1311.2901
-    """
-
-    torch.set_grad_enabled(False)
-    model.eval()
-    mean = mean if mean else 0
-    patch_H, patch_W = patch if isinstance(patch, Sequence) else (patch, patch)
-    pad_H, pad_W = patch_H // 2, patch_W // 2
-
-    # Padded image
-    images = F.pad(images, (pad_W, pad_W, pad_H, pad_H), value=mean)
-    B, _, H, W = images.shape
-    new_H = (H - patch_H) // stride + 1
-    new_W = (W - patch_W) // stride + 1
-
-    # Prepare sampling grids
-    anchors = []
-    grid_h = 0
-    while grid_h <= H - patch_H:
-        grid_w = 0
-        while grid_w <= W - patch_W:
-            grid_w += stride
-            anchors.append((grid_h, grid_w))
-        grid_h += stride
-
-    # Baseline score without occlusion
-    baseline = model(images).detach().gather(1, ids)
-
-    # Compute per-pixel logits
-    scoremaps = []
-    for i in tqdm(range(0, len(anchors), n_batches), leave=False):
-        batch_images = []
-        batch_ids = []
-        for grid_h, grid_w in anchors[i : i + n_batches]:
-            images_ = images.clone()
-            images_[..., grid_h : grid_h + patch_H, grid_w : grid_w + patch_W] = mean
-            batch_images.append(images_)
-            batch_ids.append(ids)
-        batch_images = torch.cat(batch_images, dim=0)
-        batch_ids = torch.cat(batch_ids, dim=0)
-        scores = model(batch_images).detach().gather(1, batch_ids)
-        scoremaps += list(torch.split(scores, B))
-
-    diffmaps = torch.cat(scoremaps, dim=1) - baseline
-    diffmaps = diffmaps.view(B, new_H, new_W)
-
-    return diffmaps

@@ -1,34 +1,56 @@
-#!/usr/bin/env python
-# coding: utf-8
-#
-# Author:   Kazuto Nakashima
-# URL:      http://kazuto1011.github.io
-# Created:  2017-05-18
 
 from __future__ import print_function
 
-import copy
 import os.path as osp
-
+import os
 import click
 import cv2
 import matplotlib.cm as cm
 import numpy as np
 import torch
-import torch.nn.functional as F
 from torchvision import models, transforms
+import matplotlib.pyplot as plt
+import numpy as np
 
 from grad_cam import (
-    BackPropagation,
-    Deconvnet,
+
     GradCAM,
-    GuidedBackPropagation,
-    occlusion_sensitivity,
+  
 )
 
-# if a model includes LSTM, such as in image captioning,
-# torch.backends.cudnn.enabled = False
 
+def create_grid(raw_image, gradcam_results, layer_names, output_path):
+    """
+    Create a 2x4 grid with the input image and Grad-CAM visualizations.
+
+    Args:
+        raw_image (PIL.Image): Original input image.
+        gradcam_results (list of numpy arrays): Grad-CAM heatmaps for each layer.
+        layer_names (list of str): Names of the layers visualized.
+        output_path (str): Path to save the generated grid.
+    """
+    fig, axes = plt.subplots(2, 4, figsize=(16, 8))
+    
+
+    # Original image in the top-left
+    # Remove the batch dimension
+
+
+    axes[0, 0].imshow(raw_image[0])
+    axes[0, 0].axis("off")
+    axes[0, 0].set_title("Original Picture")
+    
+    # Grad-CAM results in the remaining cells
+    for i, (heatmap, layer_name) in enumerate(zip(gradcam_results, layer_names)):
+        row, col = divmod(i + 1, 4)
+        axes[row, col].imshow(heatmap, cmap="jet", alpha=0.7)  # Heatmap
+        axes[row, col].axis("off")
+        axes[row, col].set_title(f"Layer {layer_name}")
+    
+    # Save and show the grid
+    plt.tight_layout()
+    plt.savefig(output_path)
+    plt.close()
 
 def get_device(cuda):
     cuda = cuda and torch.cuda.is_available()
@@ -90,7 +112,7 @@ def save_gradcam(filename, gcam, raw_image, paper_cmap=False):
         alpha = gcam[..., None]
         gcam = alpha * cmap + (1 - alpha) * raw_image
     else:
-        gcam = (cmap.astype(np.float) + raw_image.astype(np.float)) / 2
+        gcam = (cmap.astype(float) + raw_image.astype(float)) / 2
     cv2.imwrite(filename, np.uint8(gcam))
 
 
@@ -119,149 +141,14 @@ def main(ctx):
     print("Mode:", ctx.invoked_subcommand)
 
 
-@main.command()
-@click.option("-i", "--image-paths", type=str, multiple=True, required=True)
-@click.option("-a", "--arch", type=click.Choice(model_names), required=True)
-@click.option("-t", "--target-layer", type=str, required=True)
-@click.option("-k", "--topk", type=int, default=3)
-@click.option("-o", "--output-dir", type=str, default="./results")
-@click.option("--cuda/--cpu", default=True)
-def demo1(image_paths, target_layer, arch, topk, output_dir, cuda):
-    """
-    Visualize model responses given multiple images
-    """
-
-    device = get_device(cuda)
-
-    # Synset words
-    classes = get_classtable()
-
-    # Model from torchvision
-    model = models.__dict__[arch](pretrained=True)
-    model.to(device)
-    model.eval()
-
-    # Images
-    images, raw_images = load_images(image_paths)
-    images = torch.stack(images).to(device)
-
-    """
-    Common usage:
-    1. Wrap your model with visualization classes defined in grad_cam.py
-    2. Run forward() with images
-    3. Run backward() with a list of specific classes
-    4. Run generate() to export results
-    """
-
-    # =========================================================================
-    print("Vanilla Backpropagation:")
-
-    bp = BackPropagation(model=model)
-    probs, ids = bp.forward(images)  # sorted
-
-    for i in range(topk):
-        bp.backward(ids=ids[:, [i]])
-        gradients = bp.generate()
-
-        # Save results as image files
-        for j in range(len(images)):
-            print("\t#{}: {} ({:.5f})".format(j, classes[ids[j, i]], probs[j, i]))
-
-            save_gradient(
-                filename=osp.join(
-                    output_dir,
-                    "{}-{}-vanilla-{}.png".format(j, arch, classes[ids[j, i]]),
-                ),
-                gradient=gradients[j],
-            )
-
-    # Remove all the hook function in the "model"
-    bp.remove_hook()
-
-    # =========================================================================
-    print("Deconvolution:")
-
-    deconv = Deconvnet(model=model)
-    _ = deconv.forward(images)
-
-    for i in range(topk):
-        deconv.backward(ids=ids[:, [i]])
-        gradients = deconv.generate()
-
-        for j in range(len(images)):
-            print("\t#{}: {} ({:.5f})".format(j, classes[ids[j, i]], probs[j, i]))
-
-            save_gradient(
-                filename=osp.join(
-                    output_dir,
-                    "{}-{}-deconvnet-{}.png".format(j, arch, classes[ids[j, i]]),
-                ),
-                gradient=gradients[j],
-            )
-
-    deconv.remove_hook()
-
-    # =========================================================================
-    print("Grad-CAM/Guided Backpropagation/Guided Grad-CAM:")
-
-    gcam = GradCAM(model=model)
-    _ = gcam.forward(images)
-
-    gbp = GuidedBackPropagation(model=model)
-    _ = gbp.forward(images)
-
-    for i in range(topk):
-        # Guided Backpropagation
-        gbp.backward(ids=ids[:, [i]])
-        gradients = gbp.generate()
-
-        # Grad-CAM
-        gcam.backward(ids=ids[:, [i]])
-        regions = gcam.generate(target_layer=target_layer)
-
-        for j in range(len(images)):
-            print("\t#{}: {} ({:.5f})".format(j, classes[ids[j, i]], probs[j, i]))
-
-            # Guided Backpropagation
-            save_gradient(
-                filename=osp.join(
-                    output_dir,
-                    "{}-{}-guided-{}.png".format(j, arch, classes[ids[j, i]]),
-                ),
-                gradient=gradients[j],
-            )
-
-            # Grad-CAM
-            save_gradcam(
-                filename=osp.join(
-                    output_dir,
-                    "{}-{}-gradcam-{}-{}.png".format(
-                        j, arch, target_layer, classes[ids[j, i]]
-                    ),
-                ),
-                gcam=regions[j, 0],
-                raw_image=raw_images[j],
-            )
-
-            # Guided Grad-CAM
-            save_gradient(
-                filename=osp.join(
-                    output_dir,
-                    "{}-{}-guided_gradcam-{}-{}.png".format(
-                        j, arch, target_layer, classes[ids[j, i]]
-                    ),
-                ),
-                gradient=torch.mul(regions, gradients)[j],
-            )
-
 
 @main.command()
 @click.option("-i", "--image-paths", type=str, multiple=True, required=True)
 @click.option("-o", "--output-dir", type=str, default="./results")
 @click.option("--cuda/--cpu", default=True)
-def demo2(image_paths, output_dir, cuda):
+def demo1(image_paths, output_dir, cuda):
     """
-    Generate Grad-CAM at different layers of ResNet-152
+    Generate Grad-CAM for VGG16 with dynamically predicted classes
     """
 
     device = get_device(cuda)
@@ -270,13 +157,13 @@ def demo2(image_paths, output_dir, cuda):
     classes = get_classtable()
 
     # Model
-    model = models.resnet152(pretrained=True)
+    model = models.vgg16(pretrained=True)
     model.to(device)
     model.eval()
 
-    # The four residual layers
-    target_layers = ["relu", "layer1", "layer2", "layer3", "layer4"]
-    target_class = 243  # "bull mastif"
+    # Target layers for Grad-CAM
+    layers_to_visualize = [14, 17, 19, 21, 24, 26, 28]
+    target_layers = [f"features.{i}" for i in layers_to_visualize]
 
     # Images
     images, raw_images = load_images(image_paths)
@@ -284,19 +171,28 @@ def demo2(image_paths, output_dir, cuda):
 
     gcam = GradCAM(model=model)
     probs, ids = gcam.forward(images)
-    ids_ = torch.LongTensor([[target_class]] * len(images)).to(device)
-    gcam.backward(ids=ids_)
+    predicted_class = ids[:, 0]  # Get the class with the highest probability
+    print(f"Predicted class: {predicted_class.item()} ({classes[predicted_class.item()]})")
+    predicted_class = predicted_class.view(-1, 1)  # Shape: [B, 1]
+
+    gcam.backward(ids=predicted_class)
+
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+    gradcam_results = []
 
     for target_layer in target_layers:
         print("Generating Grad-CAM @{}".format(target_layer))
 
         # Grad-CAM
         regions = gcam.generate(target_layer=target_layer)
+        gradcam_results.append(regions[0][0])  # Heatmap for the first image
+
 
         for j in range(len(images)):
             print(
                 "\t#{}: {} ({:.5f})".format(
-                    j, classes[target_class], float(probs[ids == target_class])
+                    j, classes[predicted_class.item()], float(probs[j, predicted_class])
                 )
             )
 
@@ -304,70 +200,21 @@ def demo2(image_paths, output_dir, cuda):
                 filename=osp.join(
                     output_dir,
                     "{}-{}-gradcam-{}-{}.png".format(
-                        j, "resnet152", target_layer, classes[target_class]
+                        j, "vgg16-predicted", target_layer, classes[predicted_class.item()]
                     ),
                 ),
                 gcam=regions[j, 0],
                 raw_image=raw_images[j],
             )
 
+    # Create and save the grid
+    output_path = f"{output_dir}/gradcam_grid.png"
+    create_grid(raw_images, gradcam_results, layers_to_visualize, output_path)
+    # Remove the batch dimension
 
-@main.command()
-@click.option("-i", "--image-paths", type=str, multiple=True, required=True)
-@click.option("-a", "--arch", type=click.Choice(model_names), required=True)
-@click.option("-k", "--topk", type=int, default=3)
-@click.option("-s", "--stride", type=int, default=1)
-@click.option("-b", "--n-batches", type=int, default=128)
-@click.option("-o", "--output-dir", type=str, default="./results")
-@click.option("--cuda/--cpu", default=True)
-def demo3(image_paths, arch, topk, stride, n_batches, output_dir, cuda):
-    """
-    Generate occlusion sensitivity maps
-    """
+    print(f"Grid saved at {output_path}")
 
-    device = get_device(cuda)
 
-    # Synset words
-    classes = get_classtable()
-
-    # Model from torchvision
-    model = models.__dict__[arch](pretrained=True)
-    model = torch.nn.DataParallel(model)
-    model.to(device)
-    model.eval()
-
-    # Images
-    images, _ = load_images(image_paths)
-    images = torch.stack(images).to(device)
-
-    print("Occlusion Sensitivity:")
-
-    patche_sizes = [10, 15, 25, 35, 45, 90]
-
-    logits = model(images)
-    probs = F.softmax(logits, dim=1)
-    probs, ids = probs.sort(dim=1, descending=True)
-
-    for i in range(topk):
-        for p in patche_sizes:
-            print("Patch:", p)
-            sensitivity = occlusion_sensitivity(
-                model, images, ids[:, [i]], patch=p, stride=stride, n_batches=n_batches
-            )
-
-            # Save results as image files
-            for j in range(len(images)):
-                print("\t#{}: {} ({:.5f})".format(j, classes[ids[j, i]], probs[j, i]))
-
-                save_sensitivity(
-                    filename=osp.join(
-                        output_dir,
-                        "{}-{}-sensitivity-{}-{}.png".format(
-                            j, arch, p, classes[ids[j, i]]
-                        ),
-                    ),
-                    maps=sensitivity[j],
-                )
 
 
 if __name__ == "__main__":
