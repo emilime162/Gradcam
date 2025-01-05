@@ -1,6 +1,7 @@
 # Grad-CAM and Deconvolutional Visualization with PyTorch
 
-PyTorch implementation of **Grad-CAM (Gradient-weighted Class Activation Mapping)** and **Deconvolutional Visualization** techniques for understanding image classification models. This project demonstrates how to visualize the regions of an image that influence the model's predictions and provides insights into adversarial robustness.
+PyTorch implementation of **Grad-CAM (Gradient-weighted Class Activation Mapping)** for understanding image classification models. This project demonstrates how to visualize the regions of an image that influence the model's predictions and provides insights into adversarial robustness.
+
 
 ---
 
@@ -52,6 +53,7 @@ Generate Grad-CAM visualizations for a pretrained VGG16 model.
 ```bash
 python main.py demo1 -i [IMAGE_PATHS] -o [OUTPUT_DIR] [--cuda/--cpu]
 ```
+
 ## Adversarial Example Visualization
 
 Below, we use **Grad-CAM** to visualize the model's decision-making process for an adversarial example and its correct classification.
@@ -66,6 +68,22 @@ Below, we use **Grad-CAM** to visualize the model's decision-making process for 
 |------------------------------|-------------------------------|
 | ![Adversarial Gibbon](results/gibbon_gradcam.png) | ![Original Hog](results/hog_gradcam.png) |
 
+## Multi-object Image Analysis
+
+Here, **Grad-CAM** is used to analyze an image containing both a golden retriever and a cat. The model predicts the image as a "golden retriever." Grad-CAM visualizations highlight the regions contributing to this decision.
+
+### Input Explanation
+- **Input Image:** An image containing both a golden retriever and a cat.
+- **Prediction:** The model classifies the image as "golden retriever."
+- **Grad-CAM Visualization:** The heatmap shows higher activations around the golden retriever, explaining its influence on the classification.
+
+### Visualization
+
+| Original Image with Grad-CAM Visualizations |
+|---------------------------------------------|
+| ![Golden Retriever and Cat](results/golden_retriever_grad.png) |
+
+In this visualization, the red regions correspond to areas that strongly influenced the model's classification. The high activations around the golden retriever explain why the model prioritized it over the cat.
 
 ## References
 
