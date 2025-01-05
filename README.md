@@ -65,3 +65,13 @@ Below, we use **Grad-CAM** to visualize the model's decision-making process for 
 | Adversarial Example (Gibbon) | Correct Classification (Hog) |
 |------------------------------|-------------------------------|
 | ![Adversarial Gibbon](results/gibbon_gradcam.png) | ![Original Hog](results/hog_gradcam.png) |
+
+
+## References
+
+1. [Grad-CAM PyTorch Implementation by Kazuto Nakashima](https://github.com/kazuto1011/grad-cam-pytorch)
+2. R. R. Selvaraju, A. Das, R. Vedantam, M. Cogswell, D. Parikh, and D. Batra. *Grad-CAM: Visual Explanations from Deep Networks via Gradient-based Localization*. Proceedings of the IEEE International Conference on Computer Vision (ICCV), 2017.
+3. J. T. Springenberg, A. Dosovitskiy, T. Brox, and M. Riedmiller. *Striving for Simplicity: The All Convolutional Net*. arXiv preprint arXiv:1412.6806, 2014.
+4. M. D. Zeiler, R. Fergus. *Visualizing and Understanding Convolutional Networks*. Proceedings of the European Conference on Computer Vision (ECCV), 2013.
+
+
